@@ -186,7 +186,21 @@ function Dashboard({ supabase, userId }) {
         {tab === "Home" && (
           <Home agent={agent} calls={calls} leads={leads} usage={usage} />
         )}
-        {tab === "Calls" && <Calls calls={calls} />}
+        {tab === "Calls" && (
+          <Calls
+            calls={calls}
+            onRefresh={async () => {
+              if (!business?.id) return;
+              const { data } = await supabase
+                .from("calls")
+                .select("*")
+                .eq("business_id", business.id)
+                .order("created_at", { ascending: false })
+                .limit(50);
+              setCalls(data || []);
+            }}
+          />
+        )}
         {tab === "Leads" && <Leads leads={leads} />}
         {tab === "Agent" && (
           <Agent
@@ -339,67 +353,146 @@ function Card({ n, label }) {
   );
 }
 
-function Calls({ calls }) {
+function Calls({ calls, onRefresh }) {
   const [openId, setOpenId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  function callerReplyPreview(call) {
+    const transcript = String(call.transcript || "").trim();
+    if (!transcript) return call.summary || "No caller reply captured.";
+
+    const lines = transcript
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const callerLines = lines.filter((line) =>
+      /^(user|customer|caller)\s*:/i.test(line)
+    );
+
+    const raw = callerLines.length
+      ? callerLines[callerLines.length - 1]
+      : lines[lines.length - 1];
+
+    return raw.replace(/^(user|customer|caller)\s*:\s*/i, "");
+  }
+
+  async function refreshCalls() {
+    if (!onRefresh) return;
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  }
 
   return (
     <>
-      <h1>Calls</h1>
+      <div className="callsHeader">
+        <div>
+          <h1>Calls</h1>
+          <p className="muted">{calls.length} recent calls</p>
+        </div>
+        <button
+          type="button"
+          className="refreshBtn"
+          onClick={refreshCalls}
+          disabled={refreshing}
+        >
+          {refreshing ? "Refreshing…" : "↻ Refresh"}
+        </button>
+      </div>
+
       {calls.length ? (
-        calls.map((call) => {
-          const seconds = Number(call.duration_seconds || 0);
-          const minutes = Math.floor(seconds / 60);
-          const remainder = seconds % 60;
-          const when = call.started_at || call.created_at;
-          const isOpen = openId === call.id;
+        <div className="callsTableWrap">
+          <div className="callsTableHeader">
+            <span>Time</span>
+            <span>Caller</span>
+            <span>Duration</span>
+            <span>Caller reply</span>
+            <span>Status</span>
+          </div>
 
-          return (
-            <div className="panel" key={call.id}>
-              <h3>
-                {(call.direction || "inbound").toUpperCase()} · {minutes}m {remainder}s
-              </h3>
+          {calls.map((call) => {
+            const seconds = Number(call.duration_seconds || 0);
+            const minutes = Math.floor(seconds / 60);
+            const remainder = seconds % 60;
+            const when = call.started_at || call.created_at;
+            const isOpen = openId === call.id;
+            const reply = callerReplyPreview(call);
 
-              <p>
-                <strong>{call.caller_number || call.callee_number || "Unknown caller"}</strong>
-              </p>
-
-              {when && (
-                <small>
-                  {new Date(when).toLocaleString()}
-                </small>
-              )}
-
-              <p>{call.summary || call.status || "No summary available."}</p>
-
-              {(call.transcript || call.provider_call_id) && (
+            return (
+              <div className="callRowGroup" key={call.id}>
                 <button
                   type="button"
-                  className="ghost"
+                  className={"callRow" + (isOpen ? " selected" : "")}
                   onClick={() => setOpenId(isOpen ? null : call.id)}
                 >
-                  {isOpen ? "Hide report" : "View full report"}
+                  <span data-label="Time">
+                    {when
+                      ? new Date(when).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                  <span data-label="Caller" className="callerCell">
+                    {call.caller_number || call.callee_number || "Unknown caller"}
+                  </span>
+                  <span data-label="Duration">
+                    {minutes}m {remainder}s
+                  </span>
+                  <span data-label="Caller reply" className="replyCell" title={reply}>
+                    {reply}
+                  </span>
+                  <span data-label="Status">
+                    {call.status || "ended"}
+                  </span>
                 </button>
-              )}
 
-              {isOpen && (
-                <div className="callReport">
-                  {call.provider_call_id && (
-                    <p><strong>Call ID:</strong> {call.provider_call_id}</p>
-                  )}
-                  {call.status && (
-                    <p><strong>Status:</strong> {call.status}</p>
-                  )}
-                  {call.transcript && (
-                    <>
-                      <h4>Transcript</h4>
-                      <div className="transcript">{call.transcript}</div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })
+                {isOpen && (
+                  <div className="callDetail">
+                    <div className="detailTop">
+                      <div>
+                        <strong>
+                          {call.caller_number || call.callee_number || "Unknown caller"}
+                        </strong>
+                        <small>
+                          {when ? new Date(when).toLocaleString() : "Time unavailable"}
+                        </small>
+                      </div>
+                      <span>
+                        {(call.direction || "inbound").toUpperCase()} · {minutes}m {remainder}s
+                      </span>
+                    </div>
+
+                    <div className="detailGrid">
+                      <div>
+                        <small>Status</small>
+                        <p>{call.status || "ended"}</p>
+                      </div>
+                      <div>
+                        <small>Call ID</small>
+                        <p>{call.provider_call_id || "Not available"}</p>
+                      </div>
+                    </div>
+
+                    {call.summary &&
+                      call.summary !== "No automatic summary was provided." && (
+                        <>
+                          <h4>Summary</h4>
+                          <p>{call.summary}</p>
+                        </>
+                      )}
+
+                    <h4>Conversation</h4>
+                    <div className="transcript">
+                      {call.transcript || "No transcript was captured for this call."}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="panel">No calls yet.</div>
       )}
