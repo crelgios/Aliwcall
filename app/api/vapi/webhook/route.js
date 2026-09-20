@@ -138,7 +138,7 @@ export async function POST(request) {
     const { data, error: userError } = await supabase.auth.admin.getUserById(member.user_id);
     if (userError) throw userError;
 
-    const email = data?.user?.email;
+    const email = "mdi75280@gmail.com";
     if (!email) {
       return NextResponse.json({ error: "Registered email not found" }, { status: 404 });
     }
