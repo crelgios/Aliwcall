@@ -41,6 +41,31 @@ function Auth({ supabase }) {
     setBusy(true);
     setMessage("");
 
+    if (mode === "signup") {
+      try {
+        const check = await fetch("/api/auth/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+
+        const validation = await check.json();
+
+        if (!check.ok || !validation.allowed) {
+          setBusy(false);
+          setMessage(
+            validation.message ||
+              "Please use a valid permanent email address."
+          );
+          return;
+        }
+      } catch {
+        setBusy(false);
+        setMessage("Could not validate your email right now. Please try again.");
+        return;
+      }
+    }
+
     const result =
       mode === "signup"
         ? await supabase.auth.signUp({ email, password })
