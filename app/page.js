@@ -340,19 +340,66 @@ function Card({ n, label }) {
 }
 
 function Calls({ calls }) {
+  const [openId, setOpenId] = useState(null);
+
   return (
     <>
       <h1>Calls</h1>
       {calls.length ? (
-        calls.map((call) => (
-          <div className="panel" key={call.id}>
-            <h3>
-              {call.direction?.toUpperCase()} · {Math.ceil((call.duration_seconds || 0) / 60)} min
-            </h3>
-            <p>{call.caller_number || call.callee_number || "Unknown"}</p>
-            <small>{call.summary || call.status}</small>
-          </div>
-        ))
+        calls.map((call) => {
+          const seconds = Number(call.duration_seconds || 0);
+          const minutes = Math.floor(seconds / 60);
+          const remainder = seconds % 60;
+          const when = call.started_at || call.created_at;
+          const isOpen = openId === call.id;
+
+          return (
+            <div className="panel" key={call.id}>
+              <h3>
+                {(call.direction || "inbound").toUpperCase()} · {minutes}m {remainder}s
+              </h3>
+
+              <p>
+                <strong>{call.caller_number || call.callee_number || "Unknown caller"}</strong>
+              </p>
+
+              {when && (
+                <small>
+                  {new Date(when).toLocaleString()}
+                </small>
+              )}
+
+              <p>{call.summary || call.status || "No summary available."}</p>
+
+              {(call.transcript || call.provider_call_id) && (
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setOpenId(isOpen ? null : call.id)}
+                >
+                  {isOpen ? "Hide report" : "View full report"}
+                </button>
+              )}
+
+              {isOpen && (
+                <div className="callReport">
+                  {call.provider_call_id && (
+                    <p><strong>Call ID:</strong> {call.provider_call_id}</p>
+                  )}
+                  {call.status && (
+                    <p><strong>Status:</strong> {call.status}</p>
+                  )}
+                  {call.transcript && (
+                    <>
+                      <h4>Transcript</h4>
+                      <div className="transcript">{call.transcript}</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
       ) : (
         <div className="panel">No calls yet.</div>
       )}
